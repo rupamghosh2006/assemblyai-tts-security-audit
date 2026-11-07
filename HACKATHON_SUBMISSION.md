@@ -21,14 +21,14 @@ Rupam Ghosh
 ### Field 3: Team members' names and emails (if a team)
 _One line per teammate: Name, email, Discord username. Up to 4 people total including you._
 ```text
-Rupam Ghosh, rupamgh32@gmail.com, rupamghosh
+Rupam Ghosh, rupamgh32@gmail.com, rupamghosh2006
 ```
 
 ---
 
 ### Field 4: Twitter or Linkedin or both
 ```text
-LinkedIn: https://www.linkedin.com/in/rupam-ghosh-
+LinkedIn: https://www.linkedin.com/in/rupam-ghosh-162593273/
 Twitter / X: https://x.com/rupamghosh2006
 ```
 
@@ -43,7 +43,7 @@ rupamgh32@gmail.com
 
 ### Field 6: Discord username*
 ```text
-rupamghosh
+rupamghosh2006
 ```
 
 ---

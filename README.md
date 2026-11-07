@@ -252,7 +252,7 @@ This assessment was conducted strictly within non-destructive testing boundaries
 
 **Rupam Ghosh**  
 - **GitHub:** [@rupamghosh2006](https://github.com/rupamghosh2006)  
-- **LinkedIn:** [linkedin.com/in/rupam-ghosh-](https://www.linkedin.com/in/rupam-ghosh-)  
+- **LinkedIn:** [linkedin.com/in/rupam-ghosh-162593273/](https://www.linkedin.com/in/rupam-ghosh-162593273/)  
 - **X / Twitter:** [@rupamghosh2006](https://x.com/rupamghosh2006)  
 - **Email:** rupamgh32@gmail.com / rupamgh2006@gmail.com  
-- **Discord:** rupamghosh
+- **Discord:** rupamghosh2006
