@@ -1,0 +1,64 @@
+[
+  {
+    "title": "Strict-Transport-Security (HSTS) header missing",
+    "severity": "Low",
+    "endpoint": "POST https://tts.us.assemblyai.com/v1/speech",
+    "section": "§7 Infrastructure, TLS & Privacy",
+    "steps_to_reproduce": "Send an HTTPS request to POST https://tts.us.assemblyai.com/v1/speech. Inspect response headers; Strict-Transport-Security is absent.",
+    "impact": "Clients and web browsers are not instructed to enforce HTTPS strictly, leaving user agents potentially vulnerable to SSL-stripping or downgrade attacks during initial connection negotiation.",
+    "remediation": "Add the Strict-Transport-Security header to all production HTTPS responses: 'Strict-Transport-Security: max-age=31536000; includeSubDomains; preload'.",
+    "evidence": {
+      "response_headers": [
+        "Date", "Content-Type", "Transfer-Encoding", "Connection",
+        "x-request-id", "x-tts-region", "cache-control", "timing-allow-origin",
+        "x-content-type-options", "x-tts-model", "x-tts-voice-id", "server-timing"
+      ],
+      "missing_header": "Strict-Transport-Security"
+    }
+  },
+  {
+    "title": "CORS wildcard (ACAO: *) enabled on speech synthesis endpoints",
+    "severity": "Informational",
+    "endpoint": "OPTIONS https://tts.us.assemblyai.com/v1/speech",
+    "section": "§7 Infrastructure, TLS & Privacy",
+    "steps_to_reproduce": "Send OPTIONS request with Origin: https://evil.com and Access-Control-Request-Method: POST. Server responds with Access-Control-Allow-Origin: *.",
+    "impact": "Permits arbitrary browser origins to issue preflight-approved requests. While required for public client-side applications utilizing ephemeral tokens, it allows any web domain to invoke synthesis if keys or tokens are accessible in browser context.",
+    "remediation": "Where possible, restrict CORS origins to authorized customer domains or maintain explicit allowlists for production deployments.",
+    "evidence": {
+      "Access-Control-Allow-Origin": "*",
+      "Access-Control-Allow-Methods": "POST, OPTIONS",
+      "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Requested-With, User-Agent, AssemblyAI-Agent"
+    }
+  },
+  {
+    "title": "Plaintext HTTP connection properly rejected (No unencrypted fallback)",
+    "severity": "Informational",
+    "endpoint": "POST http://tts.us.assemblyai.com/v1/speech",
+    "section": "§7 Infrastructure, TLS & Privacy",
+    "steps_to_reproduce": "Send POST request to http://tts.us.assemblyai.com/v1/speech over unencrypted HTTP (port 80).",
+    "impact": "Verification of defensive control: The server rejects unencrypted HTTP requests with status 404, preventing inadvertent plaintext transmission of API keys or synthesized audio over the wire.",
+    "remediation": "No remediation required. Maintain strict rejection/redirection of all plaintext traffic at the load balancer.",
+    "evidence": {
+      "http_status": 404,
+      "tls_enforced": true
+    }
+  },
+  {
+    "title": "High-entropy UUIDv4 confirmed for x-request-id correlation tracking",
+    "severity": "Informational",
+    "endpoint": "POST https://tts.us.assemblyai.com/v1/speech",
+    "section": "§7 Infrastructure, TLS & Privacy",
+    "steps_to_reproduce": "Sample 5 sequential requests and examine 'x-request-id' headers.",
+    "impact": "Verification of defensive control: Request IDs exhibit full UUIDv4 cryptographic entropy with no sequential patterns, timestamps, or predictability, mitigating request enumeration and session correlation attacks.",
+    "remediation": "No remediation required.",
+    "evidence": {
+      "sample_uuids": [
+        "851dbe16-4b30-4ce9-b588-a8f2c59a50bd",
+        "d6bfdc1d-1ab7-43ca-9894-3f92c70d9bee",
+        "604e1643-3f1f-4098-9d10-420a02536af2",
+        "54914837-0c72-4aa0-9176-0b41868cd38b",
+        "75d740d1-936e-4f69-8061-8616de9686c8"
+      ]
+    }
+  }
+]

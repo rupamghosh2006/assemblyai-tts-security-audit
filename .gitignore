@@ -1,0 +1,29 @@
+# Environment variables and secrets
+.env
+*.env
+*.env.local
+voice_id.txt
+
+# Python bytecode and caches
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.pytest_cache/
+.coverage
+htmlcov/
+
+# IDE / Editor configuration
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Logs and runtime artifacts
+*.log
+*.tmp
+pentest/
+
+# OS specific files
+.DS_Store
+Thumbs.db

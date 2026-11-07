@@ -1,0 +1,97 @@
+[
+  {
+    "title": "WebSocket Origin not validated — CSWSH possible",
+    "severity": "High",
+    "endpoint": "WS wss://tts.us.assemblyai.com/v1/ws",
+    "section": "§4 WebSocket Protocol",
+    "steps_to_reproduce": "Connect to wss://tts.us.assemblyai.com/v1/ws with header Origin: https://evil.com. Server accepts handshake and begins session.",
+    "impact": "Cross-Site WebSocket Hijacking: Malicious websites visited by an authenticated user can establish unauthorized WebSocket streams using the victim's session/token.",
+    "remediation": "Validate the Origin header against an approved domain allowlist during the initial HTTP upgrade handshake.",
+    "evidence": {
+      "tested_origin": "https://evil.com",
+      "handshake_accepted": true
+    }
+  },
+  {
+    "title": "WebSocket session outlives ephemeral token expiration (Indefinite synthesis on expired token)",
+    "severity": "High",
+    "endpoint": "WS wss://tts.us.assemblyai.com/v1/ws",
+    "section": "§4 WebSocket Protocol",
+    "steps_to_reproduce": "1. Mint an ephemeral token with expires_in_seconds=2 at https://token.us.assemblyai.com/v1/token.\n2. Open WebSocket connection to wss://tts.us.assemblyai.com/v1/ws with the token.\n3. Wait 6 seconds until token is expired.\n4. Send Generate and Flush frames.\nResult: Server synthesizes full audio (Audio + FlushDone frames) without checking token expiration.",
+    "impact": "Session Lifetime Desynchronization / Lease Bypass: Temporary token expiration timestamps are only evaluated during the initial HTTP upgrade handshake. Once the socket is open, the connection can stay active indefinitely (or be refreshed with periodic traffic), enabling unlimited speech synthesis on an expired token.",
+    "remediation": "The WebSocket gateway worker must schedule a timer matching the token's expires_at timestamp or validate expiration on every incoming Generate frame, terminating the connection or rejecting frames when now() > expires_at.",
+    "evidence": {
+      "token_ttl_seconds": 2,
+      "waited_seconds": 6,
+      "audio_frames_received": 43,
+      "synthesis_succeeded_on_expired_token": true
+    }
+  },
+  {
+    "title": "Master API key and token exposure via WebSocket URI query parameter (?token=)",
+    "severity": "Low",
+    "endpoint": "WS wss://tts.us.assemblyai.com/v1/ws?token=<credential>",
+    "section": "§4 WebSocket Protocol",
+    "steps_to_reproduce": "1. Note that POST /v1/speech strictly rejects ?token= in query strings ('the query string is not read').\n2. Connect to wss://tts.us.assemblyai.com/v1/ws?token=<api_key>.\nResult: Connection succeeds with 101 Switching Protocols.",
+    "impact": "Information Exposure via URL Query String (CWE-598): Passing master API keys and tokens in the URL causes secrets to be captured in edge load balancer logs (AWS ALB/CloudFront access logs), corporate proxy logs, browser history, and Referer headers. This is unnecessary since AssemblyAI already supports the secure Sec-WebSocket-Protocol header mechanism.",
+    "remediation": "Deprecate ?token= in WebSocket URLs and enforce header-based or subprotocol authentication (Sec-WebSocket-Protocol) across all clients.",
+    "evidence": {
+      "query_param_allowed": true,
+      "subprotocol_also_supported": true
+    }
+  },
+  {
+    "title": "WebSocket accepts Flush frame before Generate without error state",
+    "severity": "Informational",
+    "endpoint": "WS wss://tts.us.assemblyai.com/v1/ws",
+    "section": "§4 WebSocket Protocol",
+    "steps_to_reproduce": "Send {'type': 'Flush'} immediately after connection initialization. Server responds with FlushDone(flush_id=0, audio_duration_ms=0).",
+    "impact": "Permissive state machine. While benign, strict protocol state machines should transition to an error state when finalization is requested on an empty queue.",
+    "remediation": "Return an explicit client error frame or ignore Flush when queue is uninitialized.",
+    "evidence": {
+      "type": "FlushDone",
+      "flush_id": 0,
+      "audio_duration_ms": 0
+    }
+  },
+  {
+    "title": "WebSocket session rate limit enforced: 5 sessions/min (Error 3009)",
+    "severity": "Informational",
+    "endpoint": "WS wss://tts.us.assemblyai.com/v1/ws",
+    "section": "§4 WebSocket Protocol",
+    "steps_to_reproduce": "Open more than 5 WebSocket connections in under 60 seconds from one account.",
+    "impact": "Enforces quota and DoS protection per account. Error 3009 reveals exact allowance and countdown seconds.",
+    "remediation": "Ensure client libraries implement exponential backoff handling for error_code 3009.",
+    "evidence": {
+      "error_code": 3009,
+      "allowance": "5 per minute"
+    }
+  },
+  {
+    "title": "WebSocket frame size limit enforced: 2,000 characters per Generate message",
+    "severity": "Informational",
+    "endpoint": "WS wss://tts.us.assemblyai.com/v1/ws",
+    "section": "§4 WebSocket Protocol",
+    "steps_to_reproduce": "Send {'type': 'Generate', 'text': 'x' * 100000}. Server returns error 3006 stating text exceeds 2000-character limit.",
+    "impact": "Protects real-time synthesizer from memory exhaustion by bounding single-frame processing sizes.",
+    "remediation": "Document the 2,000 character frame limit in WebSocket API developer guides.",
+    "evidence": {
+      "error_code": 3006,
+      "limit": 2000
+    }
+  },
+  {
+    "title": "WebSocket idle inactivity timeout strictly enforced at 120 seconds",
+    "severity": "Informational",
+    "endpoint": "WS wss://tts.us.assemblyai.com/v1/ws",
+    "section": "§4 WebSocket Protocol",
+    "steps_to_reproduce": "Establish WebSocket session and send no messages. Exactly at 120s, server dispatches Error 3006 ('No message received for 120 seconds; the idle session was closed') and terminates connection.",
+    "impact": "Verified defensive control: Idle connections cannot be indefinitely maintained to exhaust connection pools.",
+    "remediation": "No remediation required (defensive benchmark verified).",
+    "evidence": {
+      "disconnect_time_seconds": 120,
+      "error_code": 3006,
+      "error_type": "inactivity_timeout"
+    }
+  }
+]

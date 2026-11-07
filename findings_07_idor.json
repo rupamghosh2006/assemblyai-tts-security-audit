@@ -1,0 +1,68 @@
+[
+  {
+    "title": "Defensive Verification: Direct voice lookup rejected cross-tenant",
+    "severity": "Informational",
+    "endpoint": "GET https://tts.us.assemblyai.com/v1/voices/01a1b59b-a5e9-753e-b832-29c1b8da324f",
+    "section": "\u00a78 Cross-Tenant Voice Authorization",
+    "steps_to_reproduce": "Call GET /v1/voices/01a1b59b-a5e9-753e-b832-29c1b8da324f with Account B's key. Server returns 404 voice_not_found.",
+    "impact": "Verification of defensive control: Direct object reference lookup across tenants is properly blocked.",
+    "remediation": "No remediation required; tenant isolation verified.",
+    "evidence": {
+      "status": 404,
+      "response": {
+        "code": "voice_not_found",
+        "message": "Voice not found",
+        "param": null,
+        "request_id": "3e182ca5-e6f3-422c-9ba7-2a2fcb6e92c3",
+        "errors": null,
+        "retryable": false,
+        "retry_after_seconds": null,
+        "error": "Voice not found"
+      }
+    }
+  },
+  {
+    "title": "Defensive Verification: Cross-tenant speech synthesis rejected by voice UUID",
+    "severity": "Informational",
+    "endpoint": "POST https://tts.us.assemblyai.com/v1/speech",
+    "section": "\u00a78 Cross-Tenant Voice Authorization",
+    "steps_to_reproduce": "Account B requests synthesis with voice_id='01a1b59b-a5e9-753e-b832-29c1b8da324f'. Server returns 422 (voice_not_found).",
+    "impact": "Verification of defensive control: The synthesis pipeline strictly validates voice ownership and blocks cross-tenant synthesis.",
+    "remediation": "No remediation required; tenant isolation verified.",
+    "evidence": {
+      "status": 422,
+      "response": {
+        "code": "voice_not_found",
+        "message": "The requested voice was not found. It may not exist, may have been deleted, or may be another account's private voice. Voices exist only in the data zone where they were created, so it may also belong to the EU data zone: use tts.eu.assemblyai.com for a voice created there.",
+        "param": "voice_id",
+        "request_id": "1e33f02f-a661-46d4-a46f-29f08c72f97e",
+        "errors": null,
+        "retryable": false,
+        "retry_after_seconds": null,
+        "error": "The requested voice was not found. It may not exist, may have been deleted, or may be another account's private voice. Voices exist only in the data zone where they were created, so it may also belong to the EU data zone: use tts.eu.assemblyai.com for a voice created there."
+      }
+    }
+  },
+  {
+    "title": "Defensive Verification: Cross-tenant voice deletion rejected",
+    "severity": "Informational",
+    "endpoint": "DELETE https://tts.us.assemblyai.com/v1/voices/01a1b59b-a5e9-753e-b832-29c1b8da324f",
+    "section": "\u00a78 Cross-Tenant Voice Authorization",
+    "steps_to_reproduce": "Account B issues DELETE /v1/voices/01a1b59b-a5e9-753e-b832-29c1b8da324f. Server returns 404 (voice_not_found).",
+    "impact": "Verification of defensive control: Tenants cannot delete or modify other customers' voice assets.",
+    "remediation": "No remediation required; tenant isolation verified.",
+    "evidence": {
+      "status": 404,
+      "response": {
+        "code": "voice_not_found",
+        "message": "Voice not found",
+        "param": null,
+        "request_id": "acbcaa6f-e2fd-4548-92f4-35a33ff99fa8",
+        "errors": null,
+        "retryable": false,
+        "retry_after_seconds": null,
+        "error": "Voice not found"
+      }
+    }
+  }
+]

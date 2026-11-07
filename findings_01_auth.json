@@ -1,0 +1,127 @@
+[
+  {
+    "title": "Authorization: Bearer <key> accepted (undocumented auth scheme)",
+    "severity": "Medium",
+    "endpoint": "POST https://tts.us.assemblyai.com/v1/speech",
+    "section": "§1a Authentication & Authorization — Header Fuzzing",
+    "steps_to_reproduce": "Send POST https://tts.us.assemblyai.com/v1/speech with header:\nAuthorization: Bearer ***redacted***\nResult: 200 OK — speech synthesized.",
+    "impact": "Undocumented auth variant accepted server-side. Masking misconfigurations in client applications and expanding the attack surface for auth parsing bugs.",
+    "remediation": "Explicitly reject keys prefixed with 'Bearer ' if the documented format is raw key only, or formally document and test both schemes.",
+    "evidence": {
+      "status": 200,
+      "x-tts-model": "assemblyai-tts-1",
+      "note": "200 OK with audio stream returned"
+    }
+  },
+  {
+    "title": "Authorization: bearer <key> (lowercase) accepted",
+    "severity": "Medium",
+    "endpoint": "POST https://tts.us.assemblyai.com/v1/speech",
+    "section": "§1a Authentication & Authorization — Header Fuzzing",
+    "steps_to_reproduce": "Send POST https://tts.us.assemblyai.com/v1/speech with header:\nAuthorization: bearer ***redacted***\nResult: 200 OK — speech synthesized.",
+    "impact": "Case-insensitive prefix parsing confirms ad-hoc auth header handling logic rather than strict schema enforcement.",
+    "remediation": "Enforce strict schema validation on Authorization headers.",
+    "evidence": {
+      "status": 200,
+      "x-tts-model": "assemblyai-tts-1"
+    }
+  },
+  {
+    "title": "Authorization header with trailing whitespace accepted (silently trimmed)",
+    "severity": "Low",
+    "endpoint": "POST https://tts.us.assemblyai.com/v1/speech",
+    "section": "§1a Authentication & Authorization — Header Fuzzing",
+    "steps_to_reproduce": "Send Authorization: ***redacted***<SPACE>\nResult: 200 OK (key silently trimmed server-side).",
+    "impact": "Overly-permissive header parsing masks malformed client credentials and makes boundary validation inconsistent.",
+    "remediation": "Reject keys with surrounding whitespace rather than silently trimming.",
+    "evidence": {
+      "status": 200
+    }
+  },
+  {
+    "title": "Duplicate Authorization header accepted by speech endpoint",
+    "severity": "Low",
+    "endpoint": "POST https://tts.us.assemblyai.com/v1/speech",
+    "section": "§1a Authentication & Authorization — Header Fuzzing",
+    "steps_to_reproduce": "Send two Authorization headers in a single HTTP request.\nResult: 200 OK — request accepted.",
+    "impact": "In reverse-proxy, API gateway, or CDN architectures, accepting duplicate headers can lead to request-smuggling auth bypass if intermediate proxies inspect a different header than the origin server.",
+    "remediation": "Reject requests containing more than one Authorization header with 400 Bad Request.",
+    "evidence": {
+      "status": 200
+    }
+  },
+  {
+    "title": "API silently ignores unrecognised request parameters (x-tts-unknown-params)",
+    "severity": "Low",
+    "endpoint": "POST https://tts.us.assemblyai.com/v1/speech",
+    "section": "§1a Authentication & Authorization — Header Fuzzing",
+    "steps_to_reproduce": "Send request body with nested 'output_format': {'container': 'mp3', ...}.\nResponse status: 200 OK with header 'x-tts-unknown-params: output_format'. Server silently defaulted to raw PCM instead of requested MP3.",
+    "impact": "Clients receive unintended audio formats without error notifications. Parameter validation allowlist silently discards unrecognized fields rather than enforcing strict request contracts, masking misconfigurations.",
+    "remediation": "Return 400 Bad Request when unknown parameters are passed.",
+    "evidence": {
+      "x-tts-unknown-params": "output_format",
+      "default_returned": "audio/pcm;rate=24000;channels=1"
+    }
+  },
+  {
+    "title": "server-timing header exposes internal pipeline stage durations",
+    "severity": "Informational",
+    "endpoint": "POST https://tts.us.assemblyai.com/v1/speech",
+    "section": "§1a Authentication & Authorization — Header Fuzzing",
+    "steps_to_reproduce": "Send any valid TTS synthesis request.\nResponse header: server-timing: open;dur=37.5, model;dur=86.6, ttfa;dur=124.2",
+    "impact": "Leaks internal architecture and stage names ('open', 'model', 'ttfa'). Enables timing-attack oracles to infer model internals, measure text complexity, or test voice existence via inference duration.",
+    "remediation": "Remove server-timing from production API responses or restrict to internal monitoring headers.",
+    "evidence": {
+      "server-timing": "open;dur=37.5, model;dur=86.6, ttfa;dur=124.2"
+    }
+  },
+  {
+    "title": "x-tts-voice-expires-at header leaks internal token lease timestamp",
+    "severity": "Informational",
+    "endpoint": "POST https://tts.us.assemblyai.com/v1/speech",
+    "section": "§1a Authentication & Authorization — Header Fuzzing",
+    "steps_to_reproduce": "Send POST /v1/speech with valid voice_id.\nResponse header: x-tts-voice-expires-at: 1799232239",
+    "impact": "Discloses internal lifecycle and expiry timing of underlying storage or voice access credentials.",
+    "remediation": "Omit internal credential expiry timestamps from client-facing response headers.",
+    "evidence": {
+      "x-tts-voice-expires-at": "1799232239"
+    }
+  },
+  {
+    "title": "Auth error codes differentiate missing header from invalid key (Oracle)",
+    "severity": "Informational",
+    "endpoint": "POST https://tts.us.assemblyai.com/v1/speech",
+    "section": "§1a Authentication & Authorization — Header Fuzzing",
+    "steps_to_reproduce": "No header -> 401 code: 'missing_authorization'\nWrong key -> 401 code: 'unauthorized'",
+    "impact": "Allows attackers to distinguish whether an authorization header reached the validation engine versus early filtering.",
+    "remediation": "Return consistent error response schemas across all authentication failure modes.",
+    "evidence": {
+      "missing": "missing_authorization",
+      "invalid": "unauthorized"
+    }
+  },
+  {
+    "title": "x-tts-region leaks backend cloud region on unauthenticated responses",
+    "severity": "Informational",
+    "endpoint": "POST https://tts.us.assemblyai.com/v1/speech",
+    "section": "§1a Authentication & Authorization — Header Fuzzing",
+    "steps_to_reproduce": "Send unauthenticated request (401 response).\nResponse header: x-tts-region: us-east-1",
+    "impact": "Discloses AWS infrastructure hosting region to unauthenticated scanners.",
+    "remediation": "Only return routing metadata on authenticated requests.",
+    "evidence": {
+      "x-tts-region": "us-east-1"
+    }
+  },
+  {
+    "title": "timing-allow-origin: * exposes synthesis performance metrics cross-origin",
+    "severity": "Informational",
+    "endpoint": "POST https://tts.us.assemblyai.com/v1/speech",
+    "section": "§1a Authentication & Authorization — Header Fuzzing",
+    "steps_to_reproduce": "Observe response headers on POST /v1/speech: timing-allow-origin: *",
+    "impact": "Allows third-party websites to extract timing metrics for cross-origin TTS calls via the Resource Timing API.",
+    "remediation": "Restrict timing-allow-origin to authorized dashboard origins.",
+    "evidence": {
+      "timing-allow-origin": "*"
+    }
+  }
+]

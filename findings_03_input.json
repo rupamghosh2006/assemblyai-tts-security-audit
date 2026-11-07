@@ -1,0 +1,16 @@
+[
+  {
+    "title": "SSML and XML markup is not parsed; tags are billed as literal characters",
+    "severity": "Informational",
+    "endpoint": "POST https://tts.us.assemblyai.com/v1/speech",
+    "section": "§3 Input Validation & Injection",
+    "steps_to_reproduce": "Send POST /v1/speech with text: 'Hello <break time=\"3s\"/> World' and malformed XML '<speak><unclosed_tag>'.\nObserved: Malformed XML returns 200 OK without parser error; x-tts-billed-characters bills all 30 characters including '<break...>'.",
+    "impact": "Customers attempting to use standard SSML tags will have markup tags pronounced or processed as literal text and billed character-by-character. (Note: Initial XXE/SSRF probes confirmed negative — no backend XML entity parsing occurs).",
+    "remediation": "Document that SSML/XML tags are not supported and are treated as verbatim string inputs, or reject unescaped markup with 400 Bad Request if SSML support is not planned.",
+    "evidence": {
+      "billed_break_chars": 30,
+      "unclosed_xml_status": 200,
+      "xxe_entity_expanded": false
+    }
+  }
+]

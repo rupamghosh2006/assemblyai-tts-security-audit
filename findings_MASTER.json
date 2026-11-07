@@ -1,0 +1,507 @@
+[
+  {
+    "title": "Cross-product token reuse: 'streaming' STT token accepted by TTS endpoint",
+    "severity": "High",
+    "endpoint": "POST https://tts.us.assemblyai.com/v1/speech",
+    "section": "\u00c2\u00a71b Temporary Tokens",
+    "steps_to_reproduce": "1. Mint a token with product='streaming' at POST https://token.us.assemblyai.com/v1/token.\n2. Send POST https://tts.us.assemblyai.com/v1/speech using the streaming token.\nResult: 200 \u00e2\u20ac\u201d auth check passed using an STT token.",
+    "impact": "Scope bypass: A temporary token provisioned only for Real-Time Speech-to-Text can be repurposed to synthesize speech on the TTS product, exposing unexpected billing and quota consumption from compromised client browsers.",
+    "remediation": "Enforce audience/product scope check in TTS authentication middleware; reject tokens where product != 'tts'.",
+    "evidence": {
+      "status": 200,
+      "speech_synthesized": true
+    }
+  },
+  {
+    "title": "WebSocket Origin not validated \u00e2\u20ac\u201d CSWSH possible",
+    "severity": "High",
+    "endpoint": "WS wss://tts.us.assemblyai.com/v1/ws",
+    "section": "\u00c2\u00a74 WebSocket Protocol",
+    "steps_to_reproduce": "Connect to wss://tts.us.assemblyai.com/v1/ws with header Origin: https://evil.com. Server accepts handshake and begins session.",
+    "impact": "Cross-Site WebSocket Hijacking: Malicious websites visited by an authenticated user can establish unauthorized WebSocket streams using the victim's session/token.",
+    "remediation": "Validate the Origin header against an approved domain allowlist during the initial HTTP upgrade handshake.",
+    "evidence": {
+      "tested_origin": "https://evil.com",
+      "handshake_accepted": true
+    }
+  },
+  {
+    "title": "WebSocket session outlives ephemeral token expiration (Indefinite synthesis on expired token)",
+    "severity": "High",
+    "endpoint": "WS wss://tts.us.assemblyai.com/v1/ws",
+    "section": "\u00c2\u00a74 WebSocket Protocol",
+    "steps_to_reproduce": "1. Mint an ephemeral token with expires_in_seconds=2 at https://token.us.assemblyai.com/v1/token.\n2. Open WebSocket connection to wss://tts.us.assemblyai.com/v1/ws with the token.\n3. Wait 6 seconds until token is expired.\n4. Send Generate and Flush frames.\nResult: Server synthesizes full audio (Audio + FlushDone frames) without checking token expiration.",
+    "impact": "Session Lifetime Desynchronization / Lease Bypass: Temporary token expiration timestamps are only evaluated during the initial HTTP upgrade handshake. Once the socket is open, the connection can stay active indefinitely (or be refreshed with periodic traffic), enabling unlimited speech synthesis on an expired token.",
+    "remediation": "The WebSocket gateway worker must schedule a timer matching the token's expires_at timestamp or validate expiration on every incoming Generate frame, terminating the connection or rejecting frames when now() > expires_at.",
+    "evidence": {
+      "token_ttl_seconds": 2,
+      "waited_seconds": 6,
+      "audio_frames_received": 43,
+      "synthesis_succeeded_on_expired_token": true
+    }
+  },
+  {
+    "title": "Authorization: Bearer <key> accepted (undocumented auth scheme)",
+    "severity": "Medium",
+    "endpoint": "POST https://tts.us.assemblyai.com/v1/speech",
+    "section": "\u00c2\u00a71a Authentication & Authorization \u00e2\u20ac\u201d Header Fuzzing",
+    "steps_to_reproduce": "Send POST https://tts.us.assemblyai.com/v1/speech with header:\nAuthorization: Bearer ***redacted***\nResult: 200 OK \u00e2\u20ac\u201d speech synthesized.",
+    "impact": "Undocumented auth variant accepted server-side. Masking misconfigurations in client applications and expanding the attack surface for auth parsing bugs.",
+    "remediation": "Explicitly reject keys prefixed with 'Bearer ' if the documented format is raw key only, or formally document and test both schemes.",
+    "evidence": {
+      "status": 200,
+      "x-tts-model": "assemblyai-tts-1",
+      "note": "200 OK with audio stream returned"
+    }
+  },
+  {
+    "title": "Authorization: bearer <key> (lowercase) accepted",
+    "severity": "Medium",
+    "endpoint": "POST https://tts.us.assemblyai.com/v1/speech",
+    "section": "\u00c2\u00a71a Authentication & Authorization \u00e2\u20ac\u201d Header Fuzzing",
+    "steps_to_reproduce": "Send POST https://tts.us.assemblyai.com/v1/speech with header:\nAuthorization: bearer ***redacted***\nResult: 200 OK \u00e2\u20ac\u201d speech synthesized.",
+    "impact": "Case-insensitive prefix parsing confirms ad-hoc auth header handling logic rather than strict schema enforcement.",
+    "remediation": "Enforce strict schema validation on Authorization headers.",
+    "evidence": {
+      "status": 200,
+      "x-tts-model": "assemblyai-tts-1"
+    }
+  },
+  {
+    "title": "STT temporary tokens grant read access to private voice library and account ID",
+    "severity": "Medium",
+    "endpoint": "GET https://tts.us.assemblyai.com/v1/voices",
+    "section": "\u00c2\u00a71b Temporary Tokens",
+    "steps_to_reproduce": "1. Mint a temporary token with product='streaming' at POST https://token.us.assemblyai.com/v1/token.\n2. Call GET https://tts.us.assemblyai.com/v1/voices using this token.\nResult: 200 OK returning full private voice metadata and owner_account_id.",
+    "impact": "Information disclosure: Client-side tokens intended solely for microphone transcription can enumerate the customer's private custom voice library, voice names, audio clip size, SHA256 hashes, and internal organization account IDs.",
+    "remediation": "Restrict voice library management endpoints (/v1/voices) to master API keys or dedicated management scopes; do not expose full voice inventories to client-side streaming tokens.",
+    "evidence": {
+      "status": 200,
+      "disclosed_fields": [
+        "owner_account_id",
+        "slug",
+        "name",
+        "visibility",
+        "clip.sha256",
+        "clip.size_bytes"
+      ]
+    }
+  },
+  {
+    "title": "US-issued temporary token accepted by EU endpoint",
+    "severity": "Medium",
+    "endpoint": "POST https://tts.eu.assemblyai.com/v1/speech",
+    "section": "\u00c2\u00a71b Temporary Tokens",
+    "steps_to_reproduce": "1. Mint a token via US endpoint: https://token.us.assemblyai.com/v1/token.\n2. Call EU speech endpoint: https://tts.eu.assemblyai.com/v1/speech with this token.\nResult: Auth check passes; returns 422 voice lookup rather than 401 Unauthorized.",
+    "impact": "Data residency boundary violation: Tokens minted for one geopolitical jurisdiction can execute requests in another.",
+    "remediation": "Bind tokens to their issuing data zone and reject cross-region token redemption.",
+    "evidence": {
+      "auth_accepted": true,
+      "x-tts-region": "eu-north-1"
+    }
+  },
+  {
+    "title": "Authorization header with trailing whitespace accepted (silently trimmed)",
+    "severity": "Low",
+    "endpoint": "POST https://tts.us.assemblyai.com/v1/speech",
+    "section": "\u00c2\u00a71a Authentication & Authorization \u00e2\u20ac\u201d Header Fuzzing",
+    "steps_to_reproduce": "Send Authorization: ***redacted***<SPACE>\nResult: 200 OK (key silently trimmed server-side).",
+    "impact": "Overly-permissive header parsing masks malformed client credentials and makes boundary validation inconsistent.",
+    "remediation": "Reject keys with surrounding whitespace rather than silently trimming.",
+    "evidence": {
+      "status": 200
+    }
+  },
+  {
+    "title": "Duplicate Authorization header accepted by speech endpoint",
+    "severity": "Low",
+    "endpoint": "POST https://tts.us.assemblyai.com/v1/speech",
+    "section": "\u00c2\u00a71a Authentication & Authorization \u00e2\u20ac\u201d Header Fuzzing",
+    "steps_to_reproduce": "Send two Authorization headers in a single HTTP request.\nResult: 200 OK \u00e2\u20ac\u201d request accepted.",
+    "impact": "In reverse-proxy, API gateway, or CDN architectures, accepting duplicate headers can lead to request-smuggling auth bypass if intermediate proxies inspect a different header than the origin server.",
+    "remediation": "Reject requests containing more than one Authorization header with 400 Bad Request.",
+    "evidence": {
+      "status": 200
+    }
+  },
+  {
+    "title": "API silently ignores unrecognised request parameters (x-tts-unknown-params)",
+    "severity": "Low",
+    "endpoint": "POST https://tts.us.assemblyai.com/v1/speech",
+    "section": "\u00c2\u00a71a Authentication & Authorization \u00e2\u20ac\u201d Header Fuzzing",
+    "steps_to_reproduce": "Send request body with nested 'output_format': {'container': 'mp3', ...}.\nResponse status: 200 OK with header 'x-tts-unknown-params: output_format'. Server silently defaulted to raw PCM instead of requested MP3.",
+    "impact": "Clients receive unintended audio formats without error notifications. Parameter validation allowlist silently discards unrecognized fields rather than enforcing strict request contracts, masking misconfigurations.",
+    "remediation": "Return 400 Bad Request when unknown parameters are passed.",
+    "evidence": {
+      "x-tts-unknown-params": "output_format",
+      "default_returned": "audio/pcm;rate=24000;channels=1"
+    }
+  },
+  {
+    "title": "Master API key and token exposure via WebSocket URI query parameter (?token=)",
+    "severity": "Low",
+    "endpoint": "WS wss://tts.us.assemblyai.com/v1/ws?token=<credential>",
+    "section": "\u00c2\u00a74 WebSocket Protocol",
+    "steps_to_reproduce": "1. Note that POST /v1/speech strictly rejects ?token= in query strings ('the query string is not read').\n2. Connect to wss://tts.us.assemblyai.com/v1/ws?token=<api_key>.\nResult: Connection succeeds with 101 Switching Protocols.",
+    "impact": "Information Exposure via URL Query String (CWE-598): Passing master API keys and tokens in the URL causes secrets to be captured in edge load balancer logs (AWS ALB/CloudFront access logs), corporate proxy logs, browser history, and Referer headers. This is unnecessary since AssemblyAI already supports the secure Sec-WebSocket-Protocol header mechanism.",
+    "remediation": "Deprecate ?token= in WebSocket URLs and enforce header-based or subprotocol authentication (Sec-WebSocket-Protocol) across all clients.",
+    "evidence": {
+      "query_param_allowed": true,
+      "subprotocol_also_supported": true
+    }
+  },
+  {
+    "title": "Compute amplification: amp_mixed_lang took 15.1s",
+    "severity": "Low",
+    "endpoint": "POST https://tts.us.assemblyai.com/v1/speech",
+    "section": "\u00a75 Rate Limiting, Billing & Resource Abuse",
+    "steps_to_reproduce": "POST with text: 'The price is $1,234.56 on 03/07/2024 at 10:00 AM. The price is $1,234.56 on 03/0...' \u2014 response took 15.1s",
+    "impact": "Pathological inputs consume disproportionate server resources.",
+    "remediation": "Add server-side synthesis time limits; meter complex normalisation tasks.",
+    "evidence": {}
+  },
+  {
+    "title": "Strict-Transport-Security (HSTS) header missing",
+    "severity": "Low",
+    "endpoint": "POST https://tts.us.assemblyai.com/v1/speech",
+    "section": "\u00c2\u00a77 Infrastructure, TLS & Privacy",
+    "steps_to_reproduce": "Send an HTTPS request to POST https://tts.us.assemblyai.com/v1/speech. Inspect response headers; Strict-Transport-Security is absent.",
+    "impact": "Clients and web browsers are not instructed to enforce HTTPS strictly, leaving user agents potentially vulnerable to SSL-stripping or downgrade attacks during initial connection negotiation.",
+    "remediation": "Add the Strict-Transport-Security header to all production HTTPS responses: 'Strict-Transport-Security: max-age=31536000; includeSubDomains; preload'.",
+    "evidence": {
+      "response_headers": [
+        "Date",
+        "Content-Type",
+        "Transfer-Encoding",
+        "Connection",
+        "x-request-id",
+        "x-tts-region",
+        "cache-control",
+        "timing-allow-origin",
+        "x-content-type-options",
+        "x-tts-model",
+        "x-tts-voice-id",
+        "server-timing"
+      ],
+      "missing_header": "Strict-Transport-Security"
+    }
+  },
+  {
+    "title": "server-timing header exposes internal pipeline stage durations",
+    "severity": "Informational",
+    "endpoint": "POST https://tts.us.assemblyai.com/v1/speech",
+    "section": "\u00c2\u00a71a Authentication & Authorization \u00e2\u20ac\u201d Header Fuzzing",
+    "steps_to_reproduce": "Send any valid TTS synthesis request.\nResponse header: server-timing: open;dur=37.5, model;dur=86.6, ttfa;dur=124.2",
+    "impact": "Leaks internal architecture and stage names ('open', 'model', 'ttfa'). Enables timing-attack oracles to infer model internals, measure text complexity, or test voice existence via inference duration.",
+    "remediation": "Remove server-timing from production API responses or restrict to internal monitoring headers.",
+    "evidence": {
+      "server-timing": "open;dur=37.5, model;dur=86.6, ttfa;dur=124.2"
+    }
+  },
+  {
+    "title": "x-tts-voice-expires-at header leaks internal token lease timestamp",
+    "severity": "Informational",
+    "endpoint": "POST https://tts.us.assemblyai.com/v1/speech",
+    "section": "\u00c2\u00a71a Authentication & Authorization \u00e2\u20ac\u201d Header Fuzzing",
+    "steps_to_reproduce": "Send POST /v1/speech with valid voice_id.\nResponse header: x-tts-voice-expires-at: 1799232239",
+    "impact": "Discloses internal lifecycle and expiry timing of underlying storage or voice access credentials.",
+    "remediation": "Omit internal credential expiry timestamps from client-facing response headers.",
+    "evidence": {
+      "x-tts-voice-expires-at": "1799232239"
+    }
+  },
+  {
+    "title": "Auth error codes differentiate missing header from invalid key (Oracle)",
+    "severity": "Informational",
+    "endpoint": "POST https://tts.us.assemblyai.com/v1/speech",
+    "section": "\u00c2\u00a71a Authentication & Authorization \u00e2\u20ac\u201d Header Fuzzing",
+    "steps_to_reproduce": "No header -> 401 code: 'missing_authorization'\nWrong key -> 401 code: 'unauthorized'",
+    "impact": "Allows attackers to distinguish whether an authorization header reached the validation engine versus early filtering.",
+    "remediation": "Return consistent error response schemas across all authentication failure modes.",
+    "evidence": {
+      "missing": "missing_authorization",
+      "invalid": "unauthorized"
+    }
+  },
+  {
+    "title": "x-tts-region leaks backend cloud region on unauthenticated responses",
+    "severity": "Informational",
+    "endpoint": "POST https://tts.us.assemblyai.com/v1/speech",
+    "section": "\u00c2\u00a71a Authentication & Authorization \u00e2\u20ac\u201d Header Fuzzing",
+    "steps_to_reproduce": "Send unauthenticated request (401 response).\nResponse header: x-tts-region: us-east-1",
+    "impact": "Discloses AWS infrastructure hosting region to unauthenticated scanners.",
+    "remediation": "Only return routing metadata on authenticated requests.",
+    "evidence": {
+      "x-tts-region": "us-east-1"
+    }
+  },
+  {
+    "title": "timing-allow-origin: * exposes synthesis performance metrics cross-origin",
+    "severity": "Informational",
+    "endpoint": "POST https://tts.us.assemblyai.com/v1/speech",
+    "section": "\u00c2\u00a71a Authentication & Authorization \u00e2\u20ac\u201d Header Fuzzing",
+    "steps_to_reproduce": "Observe response headers on POST /v1/speech: timing-allow-origin: *",
+    "impact": "Allows third-party websites to extract timing metrics for cross-origin TTS calls via the Resource Timing API.",
+    "remediation": "Restrict timing-allow-origin to authorized dashboard origins.",
+    "evidence": {
+      "timing-allow-origin": "*"
+    }
+  },
+  {
+    "title": "Defensive Verification: Temporary tokens blocked from destructive mutations",
+    "severity": "Informational",
+    "endpoint": "DELETE https://tts.us.assemblyai.com/v1/voices/{id}",
+    "section": "\u00c2\u00a71b Temporary Tokens",
+    "steps_to_reproduce": "Send DELETE request to https://tts.us.assemblyai.com/v1/voices/{id} using an ephemeral temporary token.",
+    "impact": "Verification of defensive control: The server rejects the mutation with 403 Forbidden (code: temp_token_not_allowed, message: 'Temporary tokens may only read voices and models'), preventing ephemeral tokens from deleting tenant assets.",
+    "remediation": "No remediation required; permissions boundary verified.",
+    "evidence": {
+      "status": 403,
+      "code": "temp_token_not_allowed",
+      "message": "Temporary tokens may only read voices and models"
+    }
+  },
+  {
+    "title": "Defensive Verification: Custom voice models strictly isolated across geopolitical zones",
+    "severity": "Informational",
+    "endpoint": "POST https://tts.eu.assemblyai.com/v1/speech",
+    "section": "\u00c2\u00a71b Temporary Tokens",
+    "steps_to_reproduce": "Attempt to synthesize speech in the EU data zone (tts.eu.assemblyai.com) using a voice created in the US data zone.",
+    "impact": "Verification of defensive control: The EU endpoint returns 422 voice_not_found stating 'Voices exist only in the data zone where they were created... use tts.us.assemblyai.com'. Neural weights and voice assets remain isolated in their creation zone.",
+    "remediation": "No remediation required; data zoning verified.",
+    "evidence": {
+      "status": 422,
+      "code": "voice_not_found",
+      "zone_isolation_enforced": true
+    }
+  },
+  {
+    "title": "Defensive Verification: AWS KMS ciphertext token format mitigates client-side JWT forgery",
+    "severity": "Informational",
+    "endpoint": "POST https://token.us.assemblyai.com/v1/token",
+    "section": "\u00c2\u00a71b Temporary Tokens",
+    "steps_to_reproduce": "Inspect temporary token binary format. Tokens begin with 'AQICAH...', matching AWS KMS encrypted ciphertext blob serialization with PKCS#7 envelope.",
+    "impact": "Verification of defensive control: Because temporary tokens are server-side encrypted via AWS KMS symmetric keys rather than client-readable JWTs, client-side algorithm confusion (e.g. 'alg': 'none') and offline HMAC secret brute-forcing are architecturally prevented.",
+    "remediation": "No remediation required; strong cryptographic architecture verified.",
+    "evidence": {
+      "format": "AWS KMS Encrypted Ciphertext Blob",
+      "prefix": "AQICAH"
+    }
+  },
+  {
+    "title": "Token endpoint exposes server implementation (uvicorn)",
+    "severity": "Informational",
+    "endpoint": "POST https://token.us.assemblyai.com/v1/token",
+    "section": "\u00c2\u00a71b Temporary Tokens",
+    "steps_to_reproduce": "Send POST https://token.us.assemblyai.com/v1/token \u00e2\u20ac\u201d response header 'server: uvicorn'",
+    "impact": "Discloses internal application server technology stack (uvicorn/ASGI).",
+    "remediation": "Strip or genericise server response headers at the edge reverse-proxy.",
+    "evidence": {
+      "server": "uvicorn"
+    }
+  },
+  {
+    "title": "Temporary tokens allow multi-request replay within validity window",
+    "severity": "Informational",
+    "endpoint": "POST https://tts.us.assemblyai.com/v1/speech",
+    "section": "\u00c2\u00a71b Temporary Tokens",
+    "steps_to_reproduce": "Mint temporary token and send multiple POST /v1/speech requests. All succeed.",
+    "impact": "If temporary tokens are intended to be strictly single-session or single-use, multi-use allows stolen tokens to generate arbitrary traffic until expiration.",
+    "remediation": "If single-session semantics are intended for browser clients, invalidate token after session initialization.",
+    "evidence": {
+      "attempts": [
+        200,
+        200
+      ]
+    }
+  },
+  {
+    "title": "SSML and XML markup is not parsed; tags are billed as literal characters",
+    "severity": "Informational",
+    "endpoint": "POST https://tts.us.assemblyai.com/v1/speech",
+    "section": "\u00c2\u00a73 Input Validation & Injection",
+    "steps_to_reproduce": "Send POST /v1/speech with text: 'Hello <break time=\"3s\"/> World' and malformed XML '<speak><unclosed_tag>'.\nObserved: Malformed XML returns 200 OK without parser error; x-tts-billed-characters bills all 30 characters including '<break...>'.",
+    "impact": "Customers attempting to use standard SSML tags will have markup tags pronounced or processed as literal text and billed character-by-character. (Note: Initial XXE/SSRF probes confirmed negative \u00e2\u20ac\u201d no backend XML entity parsing occurs).",
+    "remediation": "Document that SSML/XML tags are not supported and are treated as verbatim string inputs, or reject unescaped markup with 400 Bad Request if SSML support is not planned.",
+    "evidence": {
+      "billed_break_chars": 30,
+      "unclosed_xml_status": 200,
+      "xxe_entity_expanded": false
+    }
+  },
+  {
+    "title": "WebSocket accepts Flush frame before Generate without error state",
+    "severity": "Informational",
+    "endpoint": "WS wss://tts.us.assemblyai.com/v1/ws",
+    "section": "\u00c2\u00a74 WebSocket Protocol",
+    "steps_to_reproduce": "Send {'type': 'Flush'} immediately after connection initialization. Server responds with FlushDone(flush_id=0, audio_duration_ms=0).",
+    "impact": "Permissive state machine. While benign, strict protocol state machines should transition to an error state when finalization is requested on an empty queue.",
+    "remediation": "Return an explicit client error frame or ignore Flush when queue is uninitialized.",
+    "evidence": {
+      "type": "FlushDone",
+      "flush_id": 0,
+      "audio_duration_ms": 0
+    }
+  },
+  {
+    "title": "WebSocket session rate limit enforced: 5 sessions/min (Error 3009)",
+    "severity": "Informational",
+    "endpoint": "WS wss://tts.us.assemblyai.com/v1/ws",
+    "section": "\u00c2\u00a74 WebSocket Protocol",
+    "steps_to_reproduce": "Open more than 5 WebSocket connections in under 60 seconds from one account.",
+    "impact": "Enforces quota and DoS protection per account. Error 3009 reveals exact allowance and countdown seconds.",
+    "remediation": "Ensure client libraries implement exponential backoff handling for error_code 3009.",
+    "evidence": {
+      "error_code": 3009,
+      "allowance": "5 per minute"
+    }
+  },
+  {
+    "title": "WebSocket frame size limit enforced: 2,000 characters per Generate message",
+    "severity": "Informational",
+    "endpoint": "WS wss://tts.us.assemblyai.com/v1/ws",
+    "section": "\u00c2\u00a74 WebSocket Protocol",
+    "steps_to_reproduce": "Send {'type': 'Generate', 'text': 'x' * 100000}. Server returns error 3006 stating text exceeds 2000-character limit.",
+    "impact": "Protects real-time synthesizer from memory exhaustion by bounding single-frame processing sizes.",
+    "remediation": "Document the 2,000 character frame limit in WebSocket API developer guides.",
+    "evidence": {
+      "error_code": 3006,
+      "limit": 2000
+    }
+  },
+  {
+    "title": "WebSocket idle inactivity timeout strictly enforced at 120 seconds",
+    "severity": "Informational",
+    "endpoint": "WS wss://tts.us.assemblyai.com/v1/ws",
+    "section": "\u00c2\u00a74 WebSocket Protocol",
+    "steps_to_reproduce": "Establish WebSocket session and send no messages. Exactly at 120s, server dispatches Error 3006 ('No message received for 120 seconds; the idle session was closed') and terminates connection.",
+    "impact": "Verified defensive control: Idle connections cannot be indefinitely maintained to exhaust connection pools.",
+    "remediation": "No remediation required (defensive benchmark verified).",
+    "evidence": {
+      "disconnect_time_seconds": 120,
+      "error_code": 3006,
+      "error_type": "inactivity_timeout"
+    }
+  },
+  {
+    "title": "Rate limiting not observed in 10 sequential requests",
+    "severity": "Informational",
+    "endpoint": "POST https://tts.us.assemblyai.com/v1/speech",
+    "section": "\u00a75 Rate Limiting, Billing & Resource Abuse",
+    "steps_to_reproduce": "Send 10 POST /v1/speech requests sequentially with 200ms gaps; no 429 received.",
+    "impact": "Rate limit threshold is unknown; may be absent or very high.",
+    "remediation": "Confirm rate limits are configured and appropriate for the account tier.",
+    "evidence": {}
+  },
+  {
+    "title": "CORS wildcard (ACAO: *) enabled on speech synthesis endpoints",
+    "severity": "Informational",
+    "endpoint": "OPTIONS https://tts.us.assemblyai.com/v1/speech",
+    "section": "\u00c2\u00a77 Infrastructure, TLS & Privacy",
+    "steps_to_reproduce": "Send OPTIONS request with Origin: https://evil.com and Access-Control-Request-Method: POST. Server responds with Access-Control-Allow-Origin: *.",
+    "impact": "Permits arbitrary browser origins to issue preflight-approved requests. While required for public client-side applications utilizing ephemeral tokens, it allows any web domain to invoke synthesis if keys or tokens are accessible in browser context.",
+    "remediation": "Where possible, restrict CORS origins to authorized customer domains or maintain explicit allowlists for production deployments.",
+    "evidence": {
+      "Access-Control-Allow-Origin": "*",
+      "Access-Control-Allow-Methods": "POST, OPTIONS",
+      "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Requested-With, User-Agent, AssemblyAI-Agent"
+    }
+  },
+  {
+    "title": "Plaintext HTTP connection properly rejected (No unencrypted fallback)",
+    "severity": "Informational",
+    "endpoint": "POST http://tts.us.assemblyai.com/v1/speech",
+    "section": "\u00c2\u00a77 Infrastructure, TLS & Privacy",
+    "steps_to_reproduce": "Send POST request to http://tts.us.assemblyai.com/v1/speech over unencrypted HTTP (port 80).",
+    "impact": "Verification of defensive control: The server rejects unencrypted HTTP requests with status 404, preventing inadvertent plaintext transmission of API keys or synthesized audio over the wire.",
+    "remediation": "No remediation required. Maintain strict rejection/redirection of all plaintext traffic at the load balancer.",
+    "evidence": {
+      "http_status": 404,
+      "tls_enforced": true
+    }
+  },
+  {
+    "title": "High-entropy UUIDv4 confirmed for x-request-id correlation tracking",
+    "severity": "Informational",
+    "endpoint": "POST https://tts.us.assemblyai.com/v1/speech",
+    "section": "\u00c2\u00a77 Infrastructure, TLS & Privacy",
+    "steps_to_reproduce": "Sample 5 sequential requests and examine 'x-request-id' headers.",
+    "impact": "Verification of defensive control: Request IDs exhibit full UUIDv4 cryptographic entropy with no sequential patterns, timestamps, or predictability, mitigating request enumeration and session correlation attacks.",
+    "remediation": "No remediation required.",
+    "evidence": {
+      "sample_uuids": [
+        "851dbe16-4b30-4ce9-b588-a8f2c59a50bd",
+        "d6bfdc1d-1ab7-43ca-9894-3f92c70d9bee",
+        "604e1643-3f1f-4098-9d10-420a02536af2",
+        "54914837-0c72-4aa0-9176-0b41868cd38b",
+        "75d740d1-936e-4f69-8061-8616de9686c8"
+      ]
+    }
+  },
+  {
+    "title": "Defensive Verification: Direct voice lookup rejected cross-tenant",
+    "severity": "Informational",
+    "endpoint": "GET https://tts.us.assemblyai.com/v1/voices/01a1b59b-a5e9-753e-b832-29c1b8da324f",
+    "section": "\u00a78 Cross-Tenant Voice Authorization",
+    "steps_to_reproduce": "Call GET /v1/voices/01a1b59b-a5e9-753e-b832-29c1b8da324f with Account B's key. Server returns 404 voice_not_found.",
+    "impact": "Verification of defensive control: Direct object reference lookup across tenants is properly blocked.",
+    "remediation": "No remediation required; tenant isolation verified.",
+    "evidence": {
+      "status": 404,
+      "response": {
+        "code": "voice_not_found",
+        "message": "Voice not found",
+        "param": null,
+        "request_id": "3e182ca5-e6f3-422c-9ba7-2a2fcb6e92c3",
+        "errors": null,
+        "retryable": false,
+        "retry_after_seconds": null,
+        "error": "Voice not found"
+      }
+    }
+  },
+  {
+    "title": "Defensive Verification: Cross-tenant speech synthesis rejected by voice UUID",
+    "severity": "Informational",
+    "endpoint": "POST https://tts.us.assemblyai.com/v1/speech",
+    "section": "\u00a78 Cross-Tenant Voice Authorization",
+    "steps_to_reproduce": "Account B requests synthesis with voice_id='01a1b59b-a5e9-753e-b832-29c1b8da324f'. Server returns 422 (voice_not_found).",
+    "impact": "Verification of defensive control: The synthesis pipeline strictly validates voice ownership and blocks cross-tenant synthesis.",
+    "remediation": "No remediation required; tenant isolation verified.",
+    "evidence": {
+      "status": 422,
+      "response": {
+        "code": "voice_not_found",
+        "message": "The requested voice was not found. It may not exist, may have been deleted, or may be another account's private voice. Voices exist only in the data zone where they were created, so it may also belong to the EU data zone: use tts.eu.assemblyai.com for a voice created there.",
+        "param": "voice_id",
+        "request_id": "1e33f02f-a661-46d4-a46f-29f08c72f97e",
+        "errors": null,
+        "retryable": false,
+        "retry_after_seconds": null,
+        "error": "The requested voice was not found. It may not exist, may have been deleted, or may be another account's private voice. Voices exist only in the data zone where they were created, so it may also belong to the EU data zone: use tts.eu.assemblyai.com for a voice created there."
+      }
+    }
+  },
+  {
+    "title": "Defensive Verification: Cross-tenant voice deletion rejected",
+    "severity": "Informational",
+    "endpoint": "DELETE https://tts.us.assemblyai.com/v1/voices/01a1b59b-a5e9-753e-b832-29c1b8da324f",
+    "section": "\u00a78 Cross-Tenant Voice Authorization",
+    "steps_to_reproduce": "Account B issues DELETE /v1/voices/01a1b59b-a5e9-753e-b832-29c1b8da324f. Server returns 404 (voice_not_found).",
+    "impact": "Verification of defensive control: Tenants cannot delete or modify other customers' voice assets.",
+    "remediation": "No remediation required; tenant isolation verified.",
+    "evidence": {
+      "status": 404,
+      "response": {
+        "code": "voice_not_found",
+        "message": "Voice not found",
+        "param": null,
+        "request_id": "acbcaa6f-e2fd-4548-92f4-35a33ff99fa8",
+        "errors": null,
+        "retryable": false,
+        "retry_after_seconds": null,
+        "error": "Voice not found"
+      }
+    }
+  }
+]

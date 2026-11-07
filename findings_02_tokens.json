@@ -1,0 +1,111 @@
+[
+  {
+    "title": "Cross-product token reuse: 'streaming' STT token accepted by TTS endpoint",
+    "severity": "High",
+    "endpoint": "POST https://tts.us.assemblyai.com/v1/speech",
+    "section": "§1b Temporary Tokens",
+    "steps_to_reproduce": "1. Mint a token with product='streaming' at POST https://token.us.assemblyai.com/v1/token.\n2. Send POST https://tts.us.assemblyai.com/v1/speech using the streaming token.\nResult: 200 — auth check passed using an STT token.",
+    "impact": "Scope bypass: A temporary token provisioned only for Real-Time Speech-to-Text can be repurposed to synthesize speech on the TTS product, exposing unexpected billing and quota consumption from compromised client browsers.",
+    "remediation": "Enforce audience/product scope check in TTS authentication middleware; reject tokens where product != 'tts'.",
+    "evidence": {
+      "status": 200,
+      "speech_synthesized": true
+    }
+  },
+  {
+    "title": "STT temporary tokens grant read access to private voice library and account ID",
+    "severity": "Medium",
+    "endpoint": "GET https://tts.us.assemblyai.com/v1/voices",
+    "section": "§1b Temporary Tokens",
+    "steps_to_reproduce": "1. Mint a temporary token with product='streaming' at POST https://token.us.assemblyai.com/v1/token.\n2. Call GET https://tts.us.assemblyai.com/v1/voices using this token.\nResult: 200 OK returning full private voice metadata and owner_account_id.",
+    "impact": "Information disclosure: Client-side tokens intended solely for microphone transcription can enumerate the customer's private custom voice library, voice names, audio clip size, SHA256 hashes, and internal organization account IDs.",
+    "remediation": "Restrict voice library management endpoints (/v1/voices) to master API keys or dedicated management scopes; do not expose full voice inventories to client-side streaming tokens.",
+    "evidence": {
+      "status": 200,
+      "disclosed_fields": [
+        "owner_account_id", "slug", "name", "visibility", "clip.sha256", "clip.size_bytes"
+      ]
+    }
+  },
+  {
+    "title": "US-issued temporary token accepted by EU endpoint",
+    "severity": "Medium",
+    "endpoint": "POST https://tts.eu.assemblyai.com/v1/speech",
+    "section": "§1b Temporary Tokens",
+    "steps_to_reproduce": "1. Mint a token via US endpoint: https://token.us.assemblyai.com/v1/token.\n2. Call EU speech endpoint: https://tts.eu.assemblyai.com/v1/speech with this token.\nResult: Auth check passes; returns 422 voice lookup rather than 401 Unauthorized.",
+    "impact": "Data residency boundary violation: Tokens minted for one geopolitical jurisdiction can execute requests in another.",
+    "remediation": "Bind tokens to their issuing data zone and reject cross-region token redemption.",
+    "evidence": {
+      "auth_accepted": true,
+      "x-tts-region": "eu-north-1"
+    }
+  },
+  {
+    "title": "Defensive Verification: Temporary tokens blocked from destructive mutations",
+    "severity": "Informational",
+    "endpoint": "DELETE https://tts.us.assemblyai.com/v1/voices/{id}",
+    "section": "§1b Temporary Tokens",
+    "steps_to_reproduce": "Send DELETE request to https://tts.us.assemblyai.com/v1/voices/{id} using an ephemeral temporary token.",
+    "impact": "Verification of defensive control: The server rejects the mutation with 403 Forbidden (code: temp_token_not_allowed, message: 'Temporary tokens may only read voices and models'), preventing ephemeral tokens from deleting tenant assets.",
+    "remediation": "No remediation required; permissions boundary verified.",
+    "evidence": {
+      "status": 403,
+      "code": "temp_token_not_allowed",
+      "message": "Temporary tokens may only read voices and models"
+    }
+  },
+  {
+    "title": "Defensive Verification: Custom voice models strictly isolated across geopolitical zones",
+    "severity": "Informational",
+    "endpoint": "POST https://tts.eu.assemblyai.com/v1/speech",
+    "section": "§1b Temporary Tokens",
+    "steps_to_reproduce": "Attempt to synthesize speech in the EU data zone (tts.eu.assemblyai.com) using a voice created in the US data zone.",
+    "impact": "Verification of defensive control: The EU endpoint returns 422 voice_not_found stating 'Voices exist only in the data zone where they were created... use tts.us.assemblyai.com'. Neural weights and voice assets remain isolated in their creation zone.",
+    "remediation": "No remediation required; data zoning verified.",
+    "evidence": {
+      "status": 422,
+      "code": "voice_not_found",
+      "zone_isolation_enforced": true
+    }
+  },
+  {
+    "title": "Defensive Verification: AWS KMS ciphertext token format mitigates client-side JWT forgery",
+    "severity": "Informational",
+    "endpoint": "POST https://token.us.assemblyai.com/v1/token",
+    "section": "§1b Temporary Tokens",
+    "steps_to_reproduce": "Inspect temporary token binary format. Tokens begin with 'AQICAH...', matching AWS KMS encrypted ciphertext blob serialization with PKCS#7 envelope.",
+    "impact": "Verification of defensive control: Because temporary tokens are server-side encrypted via AWS KMS symmetric keys rather than client-readable JWTs, client-side algorithm confusion (e.g. 'alg': 'none') and offline HMAC secret brute-forcing are architecturally prevented.",
+    "remediation": "No remediation required; strong cryptographic architecture verified.",
+    "evidence": {
+      "format": "AWS KMS Encrypted Ciphertext Blob",
+      "prefix": "AQICAH"
+    }
+  },
+  {
+    "title": "Token endpoint exposes server implementation (uvicorn)",
+    "severity": "Informational",
+    "endpoint": "POST https://token.us.assemblyai.com/v1/token",
+    "section": "§1b Temporary Tokens",
+    "steps_to_reproduce": "Send POST https://token.us.assemblyai.com/v1/token — response header 'server: uvicorn'",
+    "impact": "Discloses internal application server technology stack (uvicorn/ASGI).",
+    "remediation": "Strip or genericise server response headers at the edge reverse-proxy.",
+    "evidence": {
+      "server": "uvicorn"
+    }
+  },
+  {
+    "title": "Temporary tokens allow multi-request replay within validity window",
+    "severity": "Informational",
+    "endpoint": "POST https://tts.us.assemblyai.com/v1/speech",
+    "section": "§1b Temporary Tokens",
+    "steps_to_reproduce": "Mint temporary token and send multiple POST /v1/speech requests. All succeed.",
+    "impact": "If temporary tokens are intended to be strictly single-session or single-use, multi-use allows stolen tokens to generate arbitrary traffic until expiration.",
+    "remediation": "If single-session semantics are intended for browser clients, invalidate token after session initialization.",
+    "evidence": {
+      "attempts": [
+        200,
+        200
+      ]
+    }
+  }
+]

@@ -1,0 +1,22 @@
+[
+  {
+    "title": "Rate limiting not observed in 10 sequential requests",
+    "severity": "Informational",
+    "endpoint": "POST https://tts.us.assemblyai.com/v1/speech",
+    "section": "\u00a75 Rate Limiting, Billing & Resource Abuse",
+    "steps_to_reproduce": "Send 10 POST /v1/speech requests sequentially with 200ms gaps; no 429 received.",
+    "impact": "Rate limit threshold is unknown; may be absent or very high.",
+    "remediation": "Confirm rate limits are configured and appropriate for the account tier.",
+    "evidence": {}
+  },
+  {
+    "title": "Compute amplification: amp_mixed_lang took 15.1s",
+    "severity": "Low",
+    "endpoint": "POST https://tts.us.assemblyai.com/v1/speech",
+    "section": "\u00a75 Rate Limiting, Billing & Resource Abuse",
+    "steps_to_reproduce": "POST with text: 'The price is $1,234.56 on 03/07/2024 at 10:00 AM. The price is $1,234.56 on 03/0...' \u2014 response took 15.1s",
+    "impact": "Pathological inputs consume disproportionate server resources.",
+    "remediation": "Add server-side synthesis time limits; meter complex normalisation tasks.",
+    "evidence": {}
+  }
+]
